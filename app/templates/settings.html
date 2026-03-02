@@ -1,0 +1,126 @@
+{% extends "base.html" %}
+{% block title %}Settings — Church Bell System{% endblock %}
+{% block page_title %}Settings{% endblock %}
+
+{% block content %}
+<div class="grid-2">
+    <!-- System Info -->
+    <div class="card">
+        <div class="card-header">
+            <h3 class="card-title"><span class="icon">💻</span> System Information</h3>
+        </div>
+        <div class="schedule-details flex-col gap-2">
+            <div class="schedule-detail">
+                <strong>Device:</strong> Lenovo ThinkPad X390
+            </div>
+            <div class="schedule-detail">
+                <strong>CPU:</strong> Intel i5-8265U
+            </div>
+            <div class="schedule-detail">
+                <strong>RAM:</strong> 8GB DDR4
+            </div>
+            <div class="schedule-detail">
+                <strong>OS:</strong> Debian 13 (Trixie)
+            </div>
+            <div class="schedule-detail">
+                <strong>Audio Server:</strong> <span id="audioServer">Detecting...</span>
+            </div>
+            <div class="schedule-detail">
+                <strong>Access URL:</strong> <code id="accessUrl">http://localhost:5000</code>
+            </div>
+        </div>
+    </div>
+
+    <!-- Audio Settings -->
+    <div class="card">
+        <div class="card-header">
+            <h3 class="card-title"><span class="icon">🔊</span> Audio Settings</h3>
+        </div>
+        <div class="form-group">
+            <label>Default Volume</label>
+            <div class="flex items-center gap-2">
+                <input type="range" id="defaultVolume" min="0" max="100" value="80" class="volume-slider"
+                    style="flex:1; width: auto;">
+                <span id="defaultVolumeValue" class="volume-value">80%</span>
+            </div>
+            <div class="form-hint">Volume level used when no schedule specifies a volume</div>
+        </div>
+        <button class="btn btn-primary mt-2" onclick="saveDefaultVolume()">Save Volume</button>
+    </div>
+
+    <!-- Quick Actions -->
+    <div class="card">
+        <div class="card-header">
+            <h3 class="card-title"><span class="icon">⚡</span> Quick Actions</h3>
+        </div>
+        <div class="flex flex-col gap-2">
+            <button class="btn btn-danger btn-lg" onclick="emergencyStop()">
+                ⏹ STOP ALL PLAYBACK
+            </button>
+        </div>
+    </div>
+
+    <!-- About -->
+    <div class="card">
+        <div class="card-header">
+            <h3 class="card-title"><span class="icon">ℹ️</span> About</h3>
+        </div>
+        <p class="text-muted">
+            Church Bell System v1.0<br>
+            A simple speaker control system for managing church audio playback,
+            scheduling, and Bluetooth speaker output.
+        </p>
+        <p class="text-sm text-muted mt-2">
+            Supports: .mp3 and .flac audio files
+        </p>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+    document.addEventListener('DOMContentLoaded', () => {
+        loadSettings();
+
+        const vol = document.getElementById('defaultVolume');
+        const valEl = document.getElementById('defaultVolumeValue');
+        vol.addEventListener('input', () => {
+            valEl.textContent = vol.value + '%';
+        });
+    });
+
+    async function loadSettings() {
+        try {
+            const vol = await api('/api/volume');
+            document.getElementById('defaultVolume').value = vol.volume;
+            document.getElementById('defaultVolumeValue').textContent = vol.volume + '%';
+
+            // Detect audio server from status
+            const status = await api('/api/status');
+            document.getElementById('audioServer').textContent = 'PipeWire (via pipewire-pulse)';
+            document.getElementById('accessUrl').textContent = `http://${location.hostname}:${location.port || 5000}`;
+        } catch (e) {
+            console.error('Failed to load settings:', e);
+        }
+    }
+
+    async function saveDefaultVolume() {
+        const vol = document.getElementById('defaultVolume').value;
+        try {
+            await apiPost('/api/volume', { volume: parseInt(vol) });
+            showToast('Default volume saved', 'success');
+        } catch (e) {
+            showToast('Failed to save', 'error');
+        }
+    }
+
+    async function emergencyStop() {
+        try {
+            await apiPost('/api/stop');
+            showToast('Playback stopped', 'success');
+        } catch (e) {
+            showToast('Failed to stop', 'error');
+        }
+    }
+</script>
+{% endblock %}

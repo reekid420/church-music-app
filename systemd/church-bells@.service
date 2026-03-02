@@ -1,0 +1,24 @@
+[Unit]
+Description=Church Bell System - Speaker Control Service
+After=network.target bluetooth.target
+Wants=bluetooth.target
+
+[Service]
+Type=simple
+User=%i
+WorkingDirectory=/home/%i/church-music-app
+Environment=PATH=/home/%i/church-music-app/venv/bin:/usr/local/bin:/usr/bin:/bin
+ExecStart=/home/%i/church-music-app/venv/bin/python run.py
+Restart=always
+RestartSec=5
+
+# Logging
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=church-bells
+
+# Give access to audio and bluetooth
+SupplementaryGroups=audio bluetooth
+
+[Install]
+WantedBy=multi-user.target

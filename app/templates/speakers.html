@@ -1,0 +1,166 @@
+{% extends "base.html" %}
+{% block title %}Speaker — Church Bell System{% endblock %}
+{% block page_title %}Speaker{% endblock %}
+
+{% block content %}
+<div class="flex items-center justify-between mb-3">
+    <p class="text-muted">Manage your Bluetooth speaker connection.</p>
+    <button class="btn btn-primary btn-lg" id="scanBtn" onclick="startScan()">
+        🔍 Scan for Speakers
+    </button>
+</div>
+
+<!-- Connected Speaker -->
+<div class="card mb-3">
+    <div class="card-header">
+        <h3 class="card-title"><span class="icon">🔊</span> Connected Speaker</h3>
+    </div>
+    <div id="connectedSpeaker">
+        <div class="loading-overlay">
+            <div class="spinner"></div> Checking...
+        </div>
+    </div>
+</div>
+
+<!-- Paired / Available -->
+<div class="card mb-3">
+    <div class="card-header">
+        <h3 class="card-title"><span class="icon">📡</span> Paired Speakers</h3>
+    </div>
+    <div id="pairedSpeakers">
+        <div class="loading-overlay">
+            <div class="spinner"></div> Loading...
+        </div>
+    </div>
+</div>
+
+<!-- Scan Results (hidden until scan) -->
+<div class="card mt-3" id="scanResults" style="display:none">
+    <div class="card-header">
+        <h3 class="card-title"><span class="icon">🔍</span> Scan Results</h3>
+    </div>
+    <div id="scanResultsList"></div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+    document.addEventListener('DOMContentLoaded', () => {
+        loadSpeaker();
+    });
+
+    async function loadSpeaker() {
+        try {
+            const data = await api('/api/speaker');
+
+            // Connected speaker
+            const connEl = document.getElementById('connectedSpeaker');
+            if (data.connected) {
+                const d = data.connected;
+                connEl.innerHTML = `
+                <div class="speaker-card mb-2">
+                    <div class="speaker-icon">🔊</div>
+                    <div class="speaker-info">
+                        <div class="speaker-name">${escHtml(d.name || 'Bluetooth Speaker')}</div>
+                        <div class="speaker-mac">${d.mac || ''}</div>
+                    </div>
+                    <span class="status-dot connected"></span>
+                    <button class="btn btn-sm btn-danger" onclick="disconnectSpeaker('${d.mac}', '${escHtml(d.name || 'Speaker')}')">Disconnect</button>
+                </div>`;
+            } else {
+                connEl.innerHTML = `
+                <div class="empty-state">
+                    <div class="empty-state-icon">🔇</div>
+                    <div class="empty-state-text">No speaker connected</div>
+                    <div class="empty-state-hint">Connect a paired speaker or scan for new ones</div>
+                </div>`;
+            }
+
+            // Paired but not connected
+            const pairedEl = document.getElementById('pairedSpeakers');
+            const connMac = data.connected?.mac;
+            const available = (data.paired || []).filter(p => p.mac !== connMac);
+            if (!available.length) {
+                pairedEl.innerHTML = `
+                <div class="empty-state">
+                    <div class="empty-state-icon">📡</div>
+                    <div class="empty-state-text">No additional paired speakers</div>
+                    <div class="empty-state-hint">Scan to find new Bluetooth speakers</div>
+                </div>`;
+            } else {
+                pairedEl.innerHTML = available.map(d => `
+                <div class="speaker-card mb-2">
+                    <div class="speaker-icon">📻</div>
+                    <div class="speaker-info">
+                        <div class="speaker-name">${escHtml(d.name)}</div>
+                        <div class="speaker-mac">${d.mac}</div>
+                    </div>
+                    <span class="status-dot disconnected"></span>
+                    <button class="btn btn-sm btn-success" onclick="connectSpeaker('${d.mac}')">Connect</button>
+                </div>
+            `).join('');
+            }
+        } catch (e) {
+            console.error('Failed to load speaker:', e);
+        }
+    }
+
+    async function startScan() {
+        const btn = document.getElementById('scanBtn');
+        btn.disabled = true;
+        btn.innerHTML = '<div class="spinner" style="width:18px;height:18px;border-width:2px"></div> Scanning...';
+
+        try {
+            const data = await apiPost('/api/speaker/scan', { duration: 10 });
+            const el = document.getElementById('scanResultsList');
+            const devices = data.devices || [];
+
+            if (!devices.length) {
+                el.innerHTML = '<div class="text-center text-muted" style="padding:20px">No new devices found. Make sure your speaker is in pairing mode.</div>';
+            } else {
+                el.innerHTML = devices.map(d => `
+                <div class="speaker-card mb-2">
+                    <div class="speaker-icon">📻</div>
+                    <div class="speaker-info">
+                        <div class="speaker-name">${escHtml(d.name)}</div>
+                        <div class="speaker-mac">${d.mac}</div>
+                    </div>
+                    <button class="btn btn-sm btn-primary" onclick="connectSpeaker('${d.mac}')">Connect</button>
+                </div>
+            `).join('');
+            }
+            document.getElementById('scanResults').style.display = '';
+        } catch (e) {
+            showToast('Scan failed', 'error');
+        }
+        btn.disabled = false;
+        btn.innerHTML = '🔍 Scan for Speakers';
+    }
+
+    async function connectSpeaker(mac) {
+        showToast('Connecting...', 'info');
+        try {
+            const data = await apiPost('/api/speaker/connect', { mac });
+            if (data.success) {
+                showToast('Speaker connected!', 'success');
+                loadSpeaker();
+            } else {
+                showToast('Failed to connect. Make sure the speaker is on and in range.', 'error');
+            }
+        } catch (e) {
+            showToast('Connection failed', 'error');
+        }
+    }
+
+    async function disconnectSpeaker(mac, name) {
+        if (!await showConfirm(`Disconnect "${name}"?`, 'You can reconnect later.')) return;
+        try {
+            await apiPost('/api/speaker/disconnect', { mac });
+            showToast('Speaker disconnected', 'success');
+            loadSpeaker();
+        } catch (e) {
+            showToast('Failed to disconnect', 'error');
+        }
+    }
+</script>
+{% endblock %}

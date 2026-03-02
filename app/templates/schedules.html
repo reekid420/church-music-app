@@ -1,0 +1,322 @@
+{% extends "base.html" %}
+{% block title %}Schedules — Church Bell System{% endblock %}
+{% block page_title %}Schedules{% endblock %}
+
+{% block content %}
+<div class="flex items-center justify-between mb-3">
+    <p class="text-muted">Set up automatic and one-time music playback.</p>
+    <button class="btn btn-primary btn-lg" onclick="showAddSchedule()">
+        + New Schedule
+    </button>
+</div>
+
+<div id="schedulesList">
+    <div class="loading-overlay">
+        <div class="spinner"></div> Loading schedules...
+    </div>
+</div>
+
+<!-- Add/Edit Schedule Modal -->
+<div class="modal-overlay" id="scheduleModal" style="display:none">
+    <div class="modal" style="max-width: 600px;">
+        <h2 class="modal-title" id="scheduleModalTitle">Create Schedule</h2>
+
+        <div class="form-group">
+            <label>Schedule Name</label>
+            <input type="text" id="schedName" class="form-control" placeholder="e.g., Sunday Worship Music">
+        </div>
+
+        <div class="form-group">
+            <label>Type</label>
+            <select id="schedType" class="form-control" onchange="onScheduleTypeChange()">
+                <option value="recurring">Recurring (e.g., every Sunday)</option>
+                <option value="one_time">One-Time (specific date/time)</option>
+                <option value="automation">Automation (recurring with date range)</option>
+            </select>
+        </div>
+
+        <!-- Recurring / Automation fields -->
+        <div id="recurringFields">
+            <div class="form-group">
+                <label>Day(s) of the Week</label>
+                <select id="schedDow" class="form-control">
+                    <option value="*">Every day</option>
+                    <option value="mon">Monday</option>
+                    <option value="tue">Tuesday</option>
+                    <option value="wed">Wednesday</option>
+                    <option value="thu">Thursday</option>
+                    <option value="fri">Friday</option>
+                    <option value="sat">Saturday</option>
+                    <option value="sun" selected>Sunday</option>
+                    <option value="mon-fri">Weekdays (Mon–Fri)</option>
+                    <option value="sat,sun">Weekends</option>
+                </select>
+            </div>
+            <div class="form-row">
+                <div class="form-group">
+                    <label>Start Time — Hour (0–23)</label>
+                    <input type="number" id="schedHour" class="form-control" min="0" max="23" value="10">
+                </div>
+                <div class="form-group">
+                    <label>Start Time — Minute (0–59)</label>
+                    <input type="number" id="schedMinute" class="form-control" min="0" max="59" value="30">
+                </div>
+            </div>
+        </div>
+
+        <!-- Automation date range -->
+        <div id="automationFields" style="display:none">
+            <div class="form-row">
+                <div class="form-group">
+                    <label>Start Date (optional)</label>
+                    <input type="date" id="schedStartDate" class="form-control">
+                </div>
+                <div class="form-group">
+                    <label>End Date (optional)</label>
+                    <input type="date" id="schedEndDate" class="form-control">
+                </div>
+            </div>
+        </div>
+
+        <!-- One-time fields -->
+        <div id="oneTimeFields" style="display:none">
+            <div class="form-group">
+                <label>Date & Time</label>
+                <input type="datetime-local" id="schedRunDate" class="form-control">
+            </div>
+        </div>
+
+        <!-- Shared fields -->
+        <div class="form-group">
+            <label>Playlist to Play</label>
+            <select id="schedPlaylist" class="form-control">
+                <option value="">Loading playlists...</option>
+            </select>
+        </div>
+
+        <div class="form-row">
+            <div class="form-group">
+                <label>Duration (minutes)</label>
+                <input type="number" id="schedDuration" class="form-control" min="1" max="480" value="35">
+                <div class="form-hint">Playback will automatically stop after this many minutes</div>
+            </div>
+            <div class="form-group">
+                <label>Volume (%)</label>
+                <input type="number" id="schedVolume" class="form-control" min="0" max="100" value="80">
+            </div>
+        </div>
+
+        <div class="modal-actions">
+            <button class="btn btn-secondary" onclick="closeScheduleModal()">Cancel</button>
+            <button class="btn btn-primary" id="schedSaveBtn" onclick="saveSchedule()">Create Schedule</button>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+    let editingScheduleId = null;
+    let playlists = [];
+
+    document.addEventListener('DOMContentLoaded', () => {
+        loadSchedules();
+        loadPlaylistsForPicker();
+    });
+
+    function onScheduleTypeChange() {
+        const t = document.getElementById('schedType').value;
+        document.getElementById('recurringFields').style.display = (t === 'recurring' || t === 'automation') ? '' : 'none';
+        document.getElementById('oneTimeFields').style.display = t === 'one_time' ? '' : 'none';
+        document.getElementById('automationFields').style.display = t === 'automation' ? '' : 'none';
+    }
+
+    async function loadPlaylistsForPicker() {
+        try {
+            playlists = await api('/api/playlists');
+            const sel = document.getElementById('schedPlaylist');
+            sel.innerHTML = '<option value="">— Select a playlist —</option>' +
+                playlists.map(p => `<option value="${p.id}">${escHtml(p.name)} (${p.song_count} songs)</option>`).join('');
+        } catch (e) {
+            console.error('Failed to load playlists', e);
+        }
+    }
+
+    async function loadSchedules() {
+        try {
+            const data = await api('/api/schedules');
+            const el = document.getElementById('schedulesList');
+            const schedules = data.schedules || [];
+
+            if (!schedules.length) {
+                el.innerHTML = `
+                <div class="empty-state">
+                    <div class="empty-state-icon">📅</div>
+                    <div class="empty-state-text">No schedules yet</div>
+                    <div class="empty-state-hint">Create a schedule to automate music playback</div>
+                </div>`;
+                return;
+            }
+
+            el.innerHTML = '<div class="grid-2">' + schedules.map(s => {
+                const typeBadge = {
+                    'recurring': '<span class="badge badge-purple">Recurring</span>',
+                    'one_time': '<span class="badge badge-info">One-Time</span>',
+                    'automation': '<span class="badge badge-warning">Automation</span>'
+                }[s.schedule_type] || '';
+
+                const enabledBadge = s.enabled
+                    ? '<span class="badge badge-success">Active</span>'
+                    : '<span class="badge badge-danger">Disabled</span>';
+
+                const dayNames = {
+                    'mon': 'Monday', 'tue': 'Tuesday', 'wed': 'Wednesday',
+                    'thu': 'Thursday', 'fri': 'Friday', 'sat': 'Saturday',
+                    'sun': 'Sunday', '*': 'Every day', 'mon-fri': 'Weekdays',
+                    'sat,sun': 'Weekends'
+                };
+
+                let timeInfo = '';
+                if (s.schedule_type === 'one_time') {
+                    timeInfo = s.run_date ? new Date(s.run_date).toLocaleString() : 'Not set';
+                } else {
+                    const day = dayNames[s.day_of_week] || s.day_of_week || 'Every day';
+                    const h = String(s.hour).padStart(2, '0');
+                    const m = String(s.minute).padStart(2, '0');
+                    timeInfo = `${day} at ${h}:${m}`;
+                }
+
+                return `
+                <div class="schedule-card">
+                    <div class="schedule-header">
+                        <span class="schedule-name">${escHtml(s.name)}</span>
+                        <div class="flex gap-1">
+                            ${typeBadge} ${enabledBadge}
+                        </div>
+                    </div>
+                    <div class="schedule-details">
+                        <div class="schedule-detail">⏰ ${timeInfo}</div>
+                        <div class="schedule-detail">⏱ ${s.duration_minutes} min</div>
+                        <div class="schedule-detail">🔊 ${s.volume}%</div>
+                    </div>
+                    <div class="flex gap-1 mt-2" style="justify-content: flex-end;">
+                        <label class="toggle" title="${s.enabled ? 'Disable' : 'Enable'}">
+                            <input type="checkbox" ${s.enabled ? 'checked' : ''} onchange="toggleSchedule(${s.id}, this.checked)">
+                            <span class="toggle-slider"></span>
+                        </label>
+                        <button class="btn btn-sm btn-secondary" onclick="editScheduleItem(${s.id})">Edit</button>
+                        <button class="btn btn-sm btn-danger" onclick="deleteScheduleItem(${s.id}, '${escHtml(s.name)}')">Delete</button>
+                    </div>
+                </div>`;
+            }).join('') + '</div>';
+        } catch (e) {
+            document.getElementById('schedulesList').innerHTML = '<div class="text-center text-muted">Failed to load</div>';
+        }
+    }
+
+    function showAddSchedule() {
+        editingScheduleId = null;
+        document.getElementById('scheduleModalTitle').textContent = 'Create Schedule';
+        document.getElementById('schedName').value = '';
+        document.getElementById('schedType').value = 'recurring';
+        document.getElementById('schedDow').value = 'sun';
+        document.getElementById('schedHour').value = '10';
+        document.getElementById('schedMinute').value = '30';
+        document.getElementById('schedRunDate').value = '';
+        document.getElementById('schedStartDate').value = '';
+        document.getElementById('schedEndDate').value = '';
+        document.getElementById('schedPlaylist').value = '';
+        document.getElementById('schedDuration').value = '35';
+        document.getElementById('schedVolume').value = '80';
+        document.getElementById('schedSaveBtn').textContent = 'Create Schedule';
+        onScheduleTypeChange();
+        document.getElementById('scheduleModal').style.display = 'flex';
+    }
+
+    async function editScheduleItem(id) {
+        try {
+            const data = await api('/api/schedules');
+            const sched = (data.schedules || []).find(s => s.id === id);
+            if (!sched) return;
+
+            editingScheduleId = id;
+            document.getElementById('scheduleModalTitle').textContent = 'Edit Schedule';
+            document.getElementById('schedName').value = sched.name;
+            document.getElementById('schedType').value = sched.schedule_type;
+            document.getElementById('schedDow').value = sched.day_of_week || '*';
+            document.getElementById('schedHour').value = sched.hour;
+            document.getElementById('schedMinute').value = sched.minute;
+            document.getElementById('schedRunDate').value = sched.run_date || '';
+            document.getElementById('schedStartDate').value = sched.start_date || '';
+            document.getElementById('schedEndDate').value = sched.end_date || '';
+            document.getElementById('schedPlaylist').value = sched.playlist_id || '';
+            document.getElementById('schedDuration').value = sched.duration_minutes;
+            document.getElementById('schedVolume').value = sched.volume;
+            document.getElementById('schedSaveBtn').textContent = 'Save Changes';
+            onScheduleTypeChange();
+            document.getElementById('scheduleModal').style.display = 'flex';
+        } catch (e) {
+            showToast('Failed to load schedule', 'error');
+        }
+    }
+
+    function closeScheduleModal() {
+        document.getElementById('scheduleModal').style.display = 'none';
+    }
+
+    async function saveSchedule() {
+        const name = document.getElementById('schedName').value.trim();
+        if (!name) { showToast('Name is required', 'warning'); return; }
+
+        const data = {
+            name,
+            schedule_type: document.getElementById('schedType').value,
+            day_of_week: document.getElementById('schedDow').value,
+            hour: parseInt(document.getElementById('schedHour').value),
+            minute: parseInt(document.getElementById('schedMinute').value),
+            run_date: document.getElementById('schedRunDate').value,
+            start_date: document.getElementById('schedStartDate').value,
+            end_date: document.getElementById('schedEndDate').value,
+            playlist_id: parseInt(document.getElementById('schedPlaylist').value) || null,
+            duration_minutes: parseInt(document.getElementById('schedDuration').value),
+            volume: parseInt(document.getElementById('schedVolume').value),
+            enabled: 1
+        };
+
+        try {
+            if (editingScheduleId) {
+                await apiPut(`/api/schedules/${editingScheduleId}`, data);
+                showToast('Schedule updated', 'success');
+            } else {
+                await apiPost('/api/schedules', data);
+                showToast('Schedule created', 'success');
+            }
+            closeScheduleModal();
+            loadSchedules();
+        } catch (e) {
+            showToast('Failed to save schedule', 'error');
+        }
+    }
+
+    async function toggleSchedule(id, enabled) {
+        try {
+            await apiPut(`/api/schedules/${id}`, { enabled: enabled ? 1 : 0 });
+            showToast(enabled ? 'Schedule enabled' : 'Schedule disabled', 'success');
+        } catch (e) {
+            showToast('Failed to update', 'error');
+            loadSchedules();
+        }
+    }
+
+    async function deleteScheduleItem(id, name) {
+        if (!await showConfirm(`Delete "${name}"?`, 'This will permanently remove this schedule.')) return;
+        try {
+            await fetch(`/api/schedules/${id}`, { method: 'DELETE' });
+            showToast('Schedule deleted', 'success');
+            loadSchedules();
+        } catch (e) {
+            showToast('Failed to delete', 'error');
+        }
+    }
+</script>
+{% endblock %}

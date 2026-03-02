@@ -1,0 +1,310 @@
+{% extends "base.html" %}
+{% block title %}Music Library — Church Bell System{% endblock %}
+{% block page_title %}Music Library{% endblock %}
+
+{% block content %}
+<!-- Upload Section -->
+<div class="card mb-3">
+    <div class="card-header">
+        <h3 class="card-title"><span class="icon">📤</span> Upload Music</h3>
+    </div>
+    <div class="upload-area" id="uploadArea">
+        <div class="upload-icon">🎵</div>
+        <div class="upload-text">Drag & drop audio files here, or click to browse</div>
+        <div class="upload-hint">Supports .mp3 and .flac files</div>
+        <input type="file" id="fileInput" multiple accept=".mp3,.flac" style="display:none">
+    </div>
+    <div id="uploadProgress" class="mt-2 hidden"></div>
+</div>
+
+<div class="grid-2">
+    <!-- Songs List -->
+    <div class="card">
+        <div class="card-header">
+            <h3 class="card-title"><span class="icon">🎵</span> Songs</h3>
+            <span class="badge badge-purple" id="songCount">0 songs</span>
+        </div>
+        <div id="songsList">
+            <div class="loading-overlay">
+                <div class="spinner"></div> Loading songs...
+            </div>
+        </div>
+    </div>
+
+    <!-- Playlists -->
+    <div class="card">
+        <div class="card-header">
+            <h3 class="card-title"><span class="icon">📋</span> Playlists</h3>
+            <button class="btn btn-sm btn-primary" onclick="showCreatePlaylist()">+ New Playlist</button>
+        </div>
+        <div id="playlistsList">
+            <div class="loading-overlay">
+                <div class="spinner"></div> Loading playlists...
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Create/Edit Playlist Modal -->
+<div class="modal-overlay" id="playlistModal" style="display:none">
+    <div class="modal">
+        <h2 class="modal-title" id="playlistModalTitle">Create Playlist</h2>
+        <div class="form-group">
+            <label>Playlist Name</label>
+            <input type="text" id="playlistName" class="form-control" placeholder="e.g., Sunday Worship">
+        </div>
+        <div class="form-group">
+            <label>Description (optional)</label>
+            <input type="text" id="playlistDesc" class="form-control"
+                placeholder="e.g., Music for Sunday morning service">
+        </div>
+        <div class="form-group" id="playlistSongsGroup" style="display:none">
+            <label>Songs in Playlist</label>
+            <div id="playlistSongPicker" class="mt-1" style="max-height: 300px; overflow-y: auto;"></div>
+        </div>
+        <div class="modal-actions">
+            <button class="btn btn-secondary" onclick="closePlaylistModal()">Cancel</button>
+            <button class="btn btn-primary" id="playlistSaveBtn" onclick="savePlaylist()">Create</button>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+    let allSongs = [];
+    let allPlaylists = [];
+    let editingPlaylistId = null;
+
+    document.addEventListener('DOMContentLoaded', () => {
+        loadSongs();
+        loadPlaylists();
+        initUpload();
+    });
+
+    // ─── Upload ──────────────────────────────────────────────
+    function initUpload() {
+        const area = document.getElementById('uploadArea');
+        const input = document.getElementById('fileInput');
+
+        area.addEventListener('click', () => input.click());
+        area.addEventListener('dragover', e => { e.preventDefault(); area.classList.add('drag-over'); });
+        area.addEventListener('dragleave', () => area.classList.remove('drag-over'));
+        area.addEventListener('drop', e => {
+            e.preventDefault();
+            area.classList.remove('drag-over');
+            uploadFiles(e.dataTransfer.files);
+        });
+        input.addEventListener('change', () => {
+            if (input.files.length) uploadFiles(input.files);
+        });
+    }
+
+    async function uploadFiles(files) {
+        const formData = new FormData();
+        for (const f of files) formData.append('files', f);
+
+        const prog = document.getElementById('uploadProgress');
+        prog.classList.remove('hidden');
+        prog.innerHTML = `<div class="flex items-center gap-2"><div class="spinner"></div> Uploading ${files.length} file(s)...</div>`;
+
+        try {
+            const res = await fetch('/api/songs/upload', { method: 'POST', body: formData });
+            const data = await res.json();
+            prog.classList.add('hidden');
+            if (data.count > 0) {
+                showToast(`Uploaded ${data.count} song(s)`, 'success');
+                loadSongs();
+            }
+            if (data.errors?.length) {
+                data.errors.forEach(e => showToast(e, 'error'));
+            }
+        } catch (e) {
+            prog.classList.add('hidden');
+            showToast('Upload failed', 'error');
+        }
+    }
+
+    // ─── Songs ───────────────────────────────────────────────
+    async function loadSongs() {
+        try {
+            allSongs = await api('/api/songs');
+            document.getElementById('songCount').textContent = `${allSongs.length} song${allSongs.length !== 1 ? 's' : ''}`;
+            const el = document.getElementById('songsList');
+            if (!allSongs.length) {
+                el.innerHTML = `
+                <div class="empty-state">
+                    <div class="empty-state-icon">🎵</div>
+                    <div class="empty-state-text">No songs yet</div>
+                    <div class="empty-state-hint">Upload some .mp3 or .flac files above</div>
+                </div>`;
+                return;
+            }
+            el.innerHTML = allSongs.map(s => `
+            <div class="list-item">
+                <div class="list-item-icon">🎵</div>
+                <div class="list-item-info">
+                    <div class="list-item-title">${escHtml(s.title)}</div>
+                    <div class="list-item-subtitle">${escHtml(s.artist || 'Unknown Artist')} · ${formatDuration(s.duration_seconds)} · ${s.format.toUpperCase()}</div>
+                </div>
+                <div class="list-item-actions">
+                    <button class="btn btn-sm btn-primary" onclick="playSong(${s.id})" title="Play">▶</button>
+                    <button class="btn btn-sm btn-danger" onclick="deleteSong(${s.id}, '${escHtml(s.title)}')" title="Delete">✕</button>
+                </div>
+            </div>
+        `).join('');
+        } catch (e) {
+            document.getElementById('songsList').innerHTML = '<div class="text-center text-muted">Failed to load</div>';
+        }
+    }
+
+    async function playSong(id) {
+        try {
+            await apiPost('/api/play', { song_id: id });
+            showToast('Playing', 'success');
+        } catch (e) {
+            showToast('Failed to play', 'error');
+        }
+    }
+
+    async function deleteSong(id, name) {
+        if (!await showConfirm(`Delete "${name}"?`, 'This will remove the song file and remove it from all playlists.')) return;
+        try {
+            await fetch(`/api/songs/${id}`, { method: 'DELETE' });
+            showToast('Song deleted', 'success');
+            loadSongs();
+        } catch (e) {
+            showToast('Failed to delete', 'error');
+        }
+    }
+
+    // ─── Playlists ───────────────────────────────────────────
+    async function loadPlaylists() {
+        try {
+            allPlaylists = await api('/api/playlists');
+            const el = document.getElementById('playlistsList');
+            if (!allPlaylists.length) {
+                el.innerHTML = `
+                <div class="empty-state">
+                    <div class="empty-state-icon">📋</div>
+                    <div class="empty-state-text">No playlists yet</div>
+                    <div class="empty-state-hint">Create one to organize your music</div>
+                </div>`;
+                return;
+            }
+            el.innerHTML = allPlaylists.map(p => `
+            <div class="list-item">
+                <div class="list-item-icon">📋</div>
+                <div class="list-item-info">
+                    <div class="list-item-title">${escHtml(p.name)}</div>
+                    <div class="list-item-subtitle">${p.song_count} song${p.song_count !== 1 ? 's' : ''}${p.description ? ' · ' + escHtml(p.description) : ''}</div>
+                </div>
+                <div class="list-item-actions">
+                    <button class="btn btn-sm btn-primary" onclick="playPlaylist(${p.id})" title="Play">▶</button>
+                    <button class="btn btn-sm btn-secondary" onclick="editPlaylist(${p.id})" title="Edit">✎</button>
+                    <button class="btn btn-sm btn-danger" onclick="deletePlaylist(${p.id}, '${escHtml(p.name)}')" title="Delete">✕</button>
+                </div>
+            </div>
+        `).join('');
+        } catch (e) {
+            document.getElementById('playlistsList').innerHTML = '<div class="text-center text-muted">Failed to load</div>';
+        }
+    }
+
+    async function playPlaylist(id) {
+        try {
+            await apiPost('/api/play', { playlist_id: id });
+            showToast('Playing playlist', 'success');
+        } catch (e) {
+            showToast('Failed to play', 'error');
+        }
+    }
+
+    function showCreatePlaylist() {
+        editingPlaylistId = null;
+        document.getElementById('playlistModalTitle').textContent = 'Create Playlist';
+        document.getElementById('playlistName').value = '';
+        document.getElementById('playlistDesc').value = '';
+        document.getElementById('playlistSongsGroup').style.display = 'none';
+        document.getElementById('playlistSaveBtn').textContent = 'Create';
+        document.getElementById('playlistModal').style.display = 'flex';
+    }
+
+    async function editPlaylist(id) {
+        editingPlaylistId = id;
+        try {
+            const pl = await api(`/api/playlists/${id}`);
+            document.getElementById('playlistModalTitle').textContent = 'Edit Playlist';
+            document.getElementById('playlistName').value = pl.name;
+            document.getElementById('playlistDesc').value = pl.description || '';
+            document.getElementById('playlistSaveBtn').textContent = 'Save Changes';
+
+            // Show song picker
+            const songIds = new Set((pl.songs || []).map(s => s.id));
+            const picker = document.getElementById('playlistSongPicker');
+            picker.innerHTML = allSongs.map(s => `
+            <label class="list-item" style="cursor:pointer">
+                <input type="checkbox" value="${s.id}" ${songIds.has(s.id) ? 'checked' : ''} style="width:20px;height:20px;accent-color:var(--accent)">
+                <div class="list-item-info">
+                    <div class="list-item-title">${escHtml(s.title)}</div>
+                    <div class="list-item-subtitle">${escHtml(s.artist || 'Unknown')}</div>
+                </div>
+            </label>
+        `).join('');
+            document.getElementById('playlistSongsGroup').style.display = 'block';
+            document.getElementById('playlistModal').style.display = 'flex';
+        } catch (e) {
+            showToast('Failed to load playlist', 'error');
+        }
+    }
+
+    function closePlaylistModal() {
+        document.getElementById('playlistModal').style.display = 'none';
+    }
+
+    async function savePlaylist() {
+        const name = document.getElementById('playlistName').value.trim();
+        if (!name) { showToast('Name is required', 'warning'); return; }
+
+        const data = {
+            name,
+            description: document.getElementById('playlistDesc').value.trim()
+        };
+
+        try {
+            if (editingPlaylistId) {
+                // Get selected songs
+                const checks = document.querySelectorAll('#playlistSongPicker input[type=checkbox]:checked');
+                data.song_ids = Array.from(checks).map(c => parseInt(c.value));
+                await apiPut(`/api/playlists/${editingPlaylistId}`, data);
+                showToast('Playlist updated', 'success');
+            } else {
+                await apiPost('/api/playlists', data);
+                showToast('Playlist created', 'success');
+            }
+            closePlaylistModal();
+            loadPlaylists();
+        } catch (e) {
+            showToast('Failed to save', 'error');
+        }
+    }
+
+    async function deletePlaylist(id, name) {
+        if (!await showConfirm(`Delete "${name}"?`, 'This will permanently delete the playlist.')) return;
+        try {
+            await fetch(`/api/playlists/${id}`, { method: 'DELETE' });
+            showToast('Playlist deleted', 'success');
+            loadPlaylists();
+        } catch (e) {
+            showToast('Failed to delete', 'error');
+        }
+    }
+
+    function formatDuration(sec) {
+        if (!sec) return '0:00';
+        const m = Math.floor(sec / 60);
+        const s = Math.floor(sec % 60);
+        return `${m}:${s.toString().padStart(2, '0')}`;
+    }
+</script>
+{% endblock %}

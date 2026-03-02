@@ -1,0 +1,101 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{% block title %}Church Bell System{% endblock %}</title>
+    <meta name="description" content="Church Speaker Control System — Schedule and control music playback for services">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="/static/css/style.css">
+</head>
+<body>
+    <!-- Navigation sidebar -->
+    <nav class="sidebar" id="sidebar">
+        <div class="sidebar-header">
+            <div class="logo">
+                <span class="logo-icon">🔔</span>
+                <span class="logo-text">Church Bells</span>
+            </div>
+            <button class="sidebar-toggle" id="sidebarToggle" aria-label="Toggle menu">☰</button>
+        </div>
+        <ul class="nav-links">
+            <li>
+                <a href="/" class="nav-link {% if request.path == '/' %}active{% endif %}" data-page="dashboard">
+                    <span class="nav-icon">🏠</span>
+                    <span class="nav-label">Dashboard</span>
+                </a>
+            </li>
+            <li>
+                <a href="/library" class="nav-link {% if request.path == '/library' %}active{% endif %}" data-page="library">
+                    <span class="nav-icon">🎵</span>
+                    <span class="nav-label">Music Library</span>
+                </a>
+            </li>
+            <li>
+                <a href="/schedules" class="nav-link {% if request.path == '/schedules' %}active{% endif %}" data-page="schedules">
+                    <span class="nav-icon">📅</span>
+                    <span class="nav-label">Schedules</span>
+                </a>
+            </li>
+            <li>
+                <a href="/speakers" class="nav-link {% if request.path == '/speakers' %}active{% endif %}" data-page="speakers">
+                    <span class="nav-icon">🔊</span>
+                    <span class="nav-label">Speakers</span>
+                </a>
+            </li>
+            <li>
+                <a href="/settings" class="nav-link {% if request.path == '/settings' %}active{% endif %}" data-page="settings">
+                    <span class="nav-icon">⚙️</span>
+                    <span class="nav-label">Settings</span>
+                </a>
+            </li>
+        </ul>
+        <!-- Mini Now-Playing bar in sidebar -->
+        <div class="sidebar-player" id="sidebarPlayer">
+            <div class="mini-status" id="miniStatus">Not Playing</div>
+        </div>
+    </nav>
+
+    <!-- Main content area -->
+    <main class="main-content">
+        <!-- Top bar with page title and quick controls -->
+        <header class="top-bar">
+            <button class="mobile-menu-btn" id="mobileMenuBtn" aria-label="Menu">☰</button>
+            <h1 class="page-title">{% block page_title %}Dashboard{% endblock %}</h1>
+            <div class="top-bar-actions">
+                <div class="volume-quick">
+                    <span class="volume-icon">🔊</span>
+                    <input type="range" id="globalVolumeSlider" min="0" max="100" value="80"
+                           class="volume-slider" title="Global Volume">
+                    <span class="volume-value" id="globalVolumeValue">80%</span>
+                </div>
+            </div>
+        </header>
+
+        <!-- Page content -->
+        <div class="content">
+            {% block content %}{% endblock %}
+        </div>
+    </main>
+
+    <!-- Toast notification container -->
+    <div class="toast-container" id="toastContainer"></div>
+
+    <!-- Confirmation dialog -->
+    <div class="modal-overlay" id="confirmModal" style="display:none">
+        <div class="modal">
+            <h2 class="modal-title" id="confirmTitle">Are you sure?</h2>
+            <p class="modal-body" id="confirmMessage">This action cannot be undone.</p>
+            <div class="modal-actions">
+                <button class="btn btn-secondary" id="confirmCancel">Cancel</button>
+                <button class="btn btn-danger" id="confirmOk">Delete</button>
+            </div>
+        </div>
+    </div>
+
+    <script src="/static/js/app.js"></script>
+    {% block scripts %}{% endblock %}
+</body>
+</html>

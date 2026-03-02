@@ -1,0 +1,193 @@
+{% extends "base.html" %}
+{% block title %}Dashboard — Church Bell System{% endblock %}
+{% block page_title %}Dashboard{% endblock %}
+
+{% block content %}
+<!-- Stats row -->
+<div class="grid-stats" id="statsRow">
+    <div class="stat-card">
+        <div class="stat-icon purple">🎵</div>
+        <div class="stat-info">
+            <div class="stat-value" id="statSongs">0</div>
+            <div class="stat-label">Songs</div>
+        </div>
+    </div>
+    <div class="stat-card">
+        <div class="stat-icon green">📋</div>
+        <div class="stat-info">
+            <div class="stat-value" id="statPlaylists">0</div>
+            <div class="stat-label">Playlists</div>
+        </div>
+    </div>
+    <div class="stat-card">
+        <div class="stat-icon yellow">📅</div>
+        <div class="stat-info">
+            <div class="stat-value" id="statSchedules">0</div>
+            <div class="stat-label">Schedules</div>
+        </div>
+    </div>
+    <div class="stat-card">
+        <div class="stat-icon blue">🔊</div>
+        <div class="stat-info">
+            <div class="stat-value" id="statSpeaker">—</div>
+            <div class="stat-label">Speaker</div>
+        </div>
+    </div>
+</div>
+
+<!-- Now Playing -->
+<div class="now-playing" id="nowPlaying">
+    <div class="now-playing-content">
+        <div class="now-playing-label">♪ NOW PLAYING</div>
+        <div class="now-playing-title" id="npTitle">Nothing Playing</div>
+        <div class="now-playing-artist" id="npArtist">Select a song or playlist to begin</div>
+
+        <div class="player-controls">
+            <button class="ctrl-btn" id="btnPrevious" title="Previous">⏮</button>
+            <button class="play-btn" id="btnPlayPause" title="Play / Pause">▶</button>
+            <button class="ctrl-btn" id="btnNext" title="Next">⏭</button>
+            <button class="ctrl-btn" id="btnStop" title="Stop" style="margin-left: 12px;">⏹</button>
+        </div>
+
+        <div class="progress-bar">
+            <div class="progress-fill" id="progressFill"></div>
+        </div>
+        <div class="progress-time">
+            <span id="timeElapsed">0:00</span>
+            <span id="timeTotal">0:00</span>
+        </div>
+
+        <div class="track-volume-control">
+            <label>Track Volume</label>
+            <input type="range" id="trackVolumeSlider" min="0" max="100" value="100" class="volume-slider"
+                style="width: 160px;">
+            <span id="trackVolumeValue" class="volume-value">100%</span>
+        </div>
+    </div>
+</div>
+
+<!-- Quick actions + Upcoming -->
+<div class="grid-2">
+    <!-- Quick Play -->
+    <div class="card">
+        <div class="card-header">
+            <h3 class="card-title"><span class="icon">⚡</span> Quick Play</h3>
+        </div>
+        <div id="quickPlayList">
+            <div class="loading-overlay">
+                <div class="spinner"></div> Loading playlists...
+            </div>
+        </div>
+    </div>
+
+    <!-- Upcoming Schedules -->
+    <div class="card">
+        <div class="card-header">
+            <h3 class="card-title"><span class="icon">📅</span> Upcoming Schedules</h3>
+            <a href="/schedules" class="btn btn-sm btn-secondary">View All</a>
+        </div>
+        <div id="upcomingList">
+            <div class="loading-overlay">
+                <div class="spinner"></div> Loading...
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script src="/static/js/player.js"></script>
+<script>
+    document.addEventListener('DOMContentLoaded', () => {
+        loadDashboardStats();
+        loadQuickPlay();
+        loadUpcoming();
+        initPlayer();
+    });
+
+    async function loadDashboardStats() {
+        try {
+            const [songs, playlists, schedules, speaker] = await Promise.all([
+                api('/api/songs'),
+                api('/api/playlists'),
+                api('/api/schedules'),
+                api('/api/speaker')
+            ]);
+            document.getElementById('statSongs').textContent = songs.length;
+            document.getElementById('statPlaylists').textContent = playlists.length;
+            document.getElementById('statSchedules').textContent = schedules.schedules?.length || 0;
+            document.getElementById('statSpeaker').textContent = speaker.connected ? '✓' : '✕';
+            document.getElementById('statSpeaker').style.color = speaker.connected ? 'var(--success)' : 'var(--danger)';
+        } catch (e) {
+            console.error('Failed to load stats:', e);
+        }
+    }
+
+    async function loadQuickPlay() {
+        try {
+            const playlists = await api('/api/playlists');
+            const el = document.getElementById('quickPlayList');
+            if (!playlists.length) {
+                el.innerHTML = `
+                <div class="empty-state">
+                    <div class="empty-state-icon">🎵</div>
+                    <div class="empty-state-text">No playlists yet</div>
+                    <a href="/library" class="btn btn-primary btn-sm mt-2">Add Music</a>
+                </div>`;
+                return;
+            }
+            el.innerHTML = playlists.map(p => `
+            <div class="list-item" onclick="quickPlay(${p.id})">
+                <div class="list-item-icon">📋</div>
+                <div class="list-item-info">
+                    <div class="list-item-title">${escHtml(p.name)}</div>
+                    <div class="list-item-subtitle">${p.song_count} song${p.song_count !== 1 ? 's' : ''}</div>
+                </div>
+                <button class="btn btn-sm btn-primary" onclick="event.stopPropagation(); quickPlay(${p.id})">▶ Play</button>
+            </div>
+        `).join('');
+        } catch (e) {
+            document.getElementById('quickPlayList').innerHTML =
+                '<div class="text-center text-muted">Failed to load playlists</div>';
+        }
+    }
+
+    async function loadUpcoming() {
+        try {
+            const data = await api('/api/schedules');
+            const el = document.getElementById('upcomingList');
+            const upcoming = data.upcoming || [];
+            if (!upcoming.length) {
+                el.innerHTML = `
+                <div class="empty-state">
+                    <div class="empty-state-icon">📅</div>
+                    <div class="empty-state-text">No upcoming schedules</div>
+                    <a href="/schedules" class="btn btn-primary btn-sm mt-2">Create Schedule</a>
+                </div>`;
+                return;
+            }
+            el.innerHTML = upcoming.map(j => `
+            <div class="list-item">
+                <div class="list-item-icon">⏰</div>
+                <div class="list-item-info">
+                    <div class="list-item-title">${escHtml(j.name || j.id)}</div>
+                    <div class="list-item-subtitle">${j.next_run ? new Date(j.next_run).toLocaleString() : 'No next run'}</div>
+                </div>
+            </div>
+        `).join('');
+        } catch (e) {
+            document.getElementById('upcomingList').innerHTML =
+                '<div class="text-center text-muted">Failed to load schedules</div>';
+        }
+    }
+
+    async function quickPlay(playlistId) {
+        try {
+            await apiPost('/api/play', { playlist_id: playlistId });
+            showToast('Playing playlist', 'success');
+        } catch (e) {
+            showToast('Failed to play', 'error');
+        }
+    }
+</script>
+{% endblock %}
