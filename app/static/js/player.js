@@ -4,6 +4,25 @@
  */
 
 let playerPollInterval = null;
+let currentPlaybackState = null;
+let lastSyncTime = 0;
+let animationFrameId = null;
+
+function renderPlayback() {
+    if (currentPlaybackState && currentPlaybackState.is_playing && currentPlaybackState.duration_seconds > 0) {
+        const now = performance.now();
+        const elapsedSinceSync = (now - lastSyncTime) / 1000;
+        let currentPos = currentPlaybackState.position_seconds + elapsedSinceSync;
+        if (currentPos > currentPlaybackState.duration_seconds) currentPos = currentPlaybackState.duration_seconds;
+
+        const pct = (currentPos / currentPlaybackState.duration_seconds) * 100;
+        const progressEl = document.getElementById('progressFill');
+        const elapsedEl = document.getElementById('timeElapsed');
+        if (progressEl) progressEl.style.width = pct + '%';
+        if (elapsedEl) elapsedEl.textContent = formatTime(currentPos);
+    }
+    animationFrameId = requestAnimationFrame(renderPlayback);
+}
 
 function initPlayer() {
     // Playback control buttons
@@ -61,6 +80,10 @@ function initPlayer() {
     // Poll for status every 2 seconds
     updatePlayerStatus();
     playerPollInterval = setInterval(updatePlayerStatus, 2000);
+
+    if (!animationFrameId) {
+        animationFrameId = requestAnimationFrame(renderPlayback);
+    }
 }
 
 async function updatePlayerStatus() {
@@ -89,7 +112,11 @@ async function updatePlayerStatus() {
             titleEl.textContent = name;
             artistEl.textContent = `Track ${status.current_index + 1} of ${status.playlist_length}`;
 
-            // Progress
+            // Sync state for animation loop
+            currentPlaybackState = status;
+            lastSyncTime = performance.now();
+
+            // Progress (Initial sync, animation handles the rest while playing)
             if (status.duration_seconds > 0) {
                 const pct = (status.position_seconds / status.duration_seconds) * 100;
                 progressEl.style.width = pct + '%';
@@ -107,6 +134,7 @@ async function updatePlayerStatus() {
                 miniStatus.style.color = status.state === 'paused' ? 'var(--warning)' : 'var(--success)';
             }
         } else {
+            currentPlaybackState = null;
             titleEl.textContent = 'Nothing Playing';
             artistEl.textContent = 'Select a song or playlist to begin';
             progressEl.style.width = '0%';

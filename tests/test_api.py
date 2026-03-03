@@ -19,14 +19,13 @@ def app():
     with tempfile.TemporaryDirectory() as tmpdir:
         test_config = {
             'TESTING': True,
-            'DATABASE_PATH': os.path.join(tmpdir, 'test.db'),
+            'DATABASE': os.path.join(tmpdir, 'test.db'),
             'MUSIC_DIR': os.path.join(tmpdir, 'music'),
             'DATA_DIR': tmpdir,
         }
         os.makedirs(test_config['MUSIC_DIR'], exist_ok=True)
 
-        app = create_app()
-        app.config.update(test_config)
+        app = create_app(test_config)
 
         with app.app_context():
             yield app

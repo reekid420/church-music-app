@@ -92,14 +92,20 @@ document.addEventListener('DOMContentLoaded', () => {
             valueEl.textContent = data.volume + '%';
         }).catch(() => { });
 
-        // Debounced volume changes
-        let volumeTimeout;
+        // Throttled live volume while dragging
+        let volumeThrottle = false;
         slider.addEventListener('input', () => {
             valueEl.textContent = slider.value + '%';
-            clearTimeout(volumeTimeout);
-            volumeTimeout = setTimeout(() => {
-                apiPost('/api/volume', { volume: parseInt(slider.value) });
-            }, 300);
+            if (!volumeThrottle) {
+                apiPost('/api/volume/live', { volume: parseInt(slider.value) }).catch(() => { });
+                volumeThrottle = true;
+                setTimeout(() => { volumeThrottle = false; }, 100);
+            }
+        });
+
+        // Persist to DB on release
+        slider.addEventListener('change', () => {
+            apiPost('/api/volume', { volume: parseInt(slider.value) }).catch(() => { });
         });
     }
 
@@ -118,5 +124,33 @@ document.addEventListener('DOMContentLoaded', () => {
                 sidebar.classList.remove('open');
             }
         });
+    }
+
+    // Mini-player global poller
+    if (!document.getElementById('npTitle')) {
+        setInterval(async () => {
+            try {
+                const status = await api('/api/status');
+                const miniStatus = document.getElementById('miniStatus');
+                if (miniStatus) {
+                    if (status.is_playing || status.state === 'paused') {
+                        miniStatus.textContent = status.state === 'paused' ? '⏸ Paused' : '▶ Playing';
+                        miniStatus.style.color = status.state === 'paused' ? 'var(--warning)' : 'var(--success)';
+                    } else {
+                        miniStatus.textContent = 'Not Playing';
+                        miniStatus.style.color = '';
+                    }
+                }
+
+                if (status.global_volume !== undefined) {
+                    const gSlider = document.getElementById('globalVolumeSlider');
+                    const gVal = document.getElementById('globalVolumeValue');
+                    if (gSlider && !gSlider.matches(':active') && !volumeThrottle) {
+                        gSlider.value = status.global_volume;
+                        gVal.textContent = status.global_volume + '%';
+                    }
+                }
+            } catch (e) { }
+        }, 2000);
     }
 });

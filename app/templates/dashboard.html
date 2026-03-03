@@ -103,6 +103,7 @@
         loadQuickPlay();
         loadUpcoming();
         initPlayer();
+        setInterval(loadDashboardStats, 30000);
     });
 
     async function loadDashboardStats() {

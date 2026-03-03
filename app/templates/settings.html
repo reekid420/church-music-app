@@ -48,17 +48,6 @@
         <button class="btn btn-primary mt-2" onclick="saveDefaultVolume()">Save Volume</button>
     </div>
 
-    <!-- Quick Actions -->
-    <div class="card">
-        <div class="card-header">
-            <h3 class="card-title"><span class="icon">⚡</span> Quick Actions</h3>
-        </div>
-        <div class="flex flex-col gap-2">
-            <button class="btn btn-danger btn-lg" onclick="emergencyStop()">
-                ⏹ STOP ALL PLAYBACK
-            </button>
-        </div>
-    </div>
 
     <!-- About -->
     <div class="card">
@@ -114,13 +103,6 @@
         }
     }
 
-    async function emergencyStop() {
-        try {
-            await apiPost('/api/stop');
-            showToast('Playback stopped', 'success');
-        } catch (e) {
-            showToast('Failed to stop', 'error');
-        }
-    }
+
 </script>
 {% endblock %}

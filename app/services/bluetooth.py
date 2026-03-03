@@ -2,7 +2,9 @@
 
 import subprocess
 import logging
+import os
 import re
+
 import threading
 import time
 
@@ -40,28 +42,66 @@ class BluetoothManager:
             return []
 
     def scan(self, duration=10):
-        """Scan for nearby Bluetooth devices."""
-        try:
-            # Start scanning
-            subprocess.run(
-                ['bluetoothctl', 'scan', 'on'],
-                capture_output=True, text=True, timeout=3
-            )
-            time.sleep(duration)
-            subprocess.run(
-                ['bluetoothctl', 'scan', 'off'],
-                capture_output=True, text=True, timeout=3
-            )
+        """Scan for nearby Bluetooth devices.
 
-            # Get discovered devices
+        Runs bluetoothctl scan to refresh BlueZ's device cache, then
+        queries the full device list and filters out already-paired devices.
+        """
+        # 1. Run scan to refresh BlueZ's internal device cache
+        try:
+            env = os.environ.copy()
+            env['LANG'] = 'C'
+            proc = subprocess.Popen(
+                ['bluetoothctl'],
+                stdin=subprocess.PIPE,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+                env=env,
+            )
+            proc.stdin.write('scan on\n')
+            proc.stdin.flush()
+            time.sleep(duration)
+            proc.stdin.write('scan off\n')
+            proc.stdin.write('quit\n')
+            proc.stdin.flush()
+            try:
+                proc.wait(timeout=5)
+            except Exception:
+                proc.kill()
+        except Exception as e:
+            logger.error(f"Bluetooth scan failed: {e}")
+
+        # 2. Get all devices BlueZ now knows about (refreshed by the scan)
+        all_devices = {}
+        try:
             result = subprocess.run(
                 ['bluetoothctl', 'devices'],
                 capture_output=True, text=True, timeout=10
             )
-            return self._parse_devices(result.stdout)
-        except Exception as e:
-            logger.error(f"Bluetooth scan failed: {e}")
-            return []
+            for dev in self._parse_devices(result.stdout):
+                all_devices[dev['mac']] = dev['name']
+        except Exception:
+            pass
+
+        # 3. Get paired devices so we can exclude them from results
+        paired_macs = set(d['mac'] for d in self.get_paired_devices())
+
+        # 4. Return unpaired devices that have a real name (skip raw MAC-only entries)
+        results = []
+        for mac, name in all_devices.items():
+            if mac in paired_macs:
+                continue
+            # Skip devices whose name is just a MAC address (unnamed)
+            if re.match(r'^([0-9A-Fa-f]{2}[:\-]){5}[0-9A-Fa-f]{2}$', name):
+                continue
+            results.append({'mac': mac, 'name': name})
+
+        logger.info(
+            f"Scan complete: {len(results)} unpaired devices "
+            f"({len(all_devices)} total in cache, {len(paired_macs)} paired excluded)"
+        )
+        return results
 
     def connect(self, mac_address):
         """Connect to a Bluetooth device and set it as default audio sink."""

@@ -98,6 +98,18 @@ def get_volume():
     return jsonify({'volume': vol})
 
 
+@api_bp.route('/volume/live', methods=['POST'])
+def set_volume_live():
+    """Set system volume immediately without persisting to DB.
+
+    Used during slider drag for instant feedback.
+    """
+    data = request.get_json(silent=True) or {}
+    vol = data.get('volume', 80)
+    success = services.volume_controller.set_volume(int(vol))
+    return jsonify({'success': success, 'volume': vol})
+
+
 @api_bp.route('/track-volume', methods=['POST'])
 def set_track_volume():
     """Set per-track volume (VLC internal)."""

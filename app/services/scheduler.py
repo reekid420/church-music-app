@@ -3,7 +3,6 @@
 import logging
 from datetime import datetime
 from apscheduler.schedulers.background import BackgroundScheduler
-from apscheduler.jobstores.sqlalchemy import SQLAlchemyJobStore
 from apscheduler.triggers.cron import CronTrigger
 from apscheduler.triggers.date import DateTrigger
 
@@ -18,12 +17,10 @@ class SchedulerService:
     def __init__(self, app, audio_player):
         self.app = app
         self.audio_player = audio_player
+        # Use default MemoryJobStore – our schedules table is the source of truth
+        # and we reload jobs on startup. SQLAlchemyJobStore fails because it tries
+        # to pickle the Flask app (which contains un-picklable lambdas).
         self.scheduler = BackgroundScheduler(
-            jobstores={
-                'default': SQLAlchemyJobStore(
-                    url=f"sqlite:///{app.config['DATABASE']}"
-                )
-            },
             job_defaults={
                 'coalesce': True,
                 'max_instances': 1,
@@ -89,6 +86,7 @@ class SchedulerService:
                 self._execute_schedule,
                 trigger=trigger,
                 id=job_id,
+                name=schedule.get('name', 'Unnamed Schedule'),
                 args=[schedule['id']],
                 replace_existing=True
             )
