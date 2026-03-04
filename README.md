@@ -27,11 +27,11 @@ A simple web-based speaker control system for a church. Upload music, create pla
 sudo apt install vlc bluetooth bluez pipewire-audio wireplumber python3-pip python3-venv
 ```
 
-### 2. Clone and set up
+### 2. Clone and set up (it needs to be in home folder for systemd to work)
 
 ```bash
 cd /home/$USER
-git clone <repo-url> church-music-app
+git clone https://github.com/reekid420/church-music-app.git
 cd church-music-app
 python3 -m venv venv
 source venv/bin/activate
