@@ -26,7 +26,7 @@ class AudioPlayer:
         self._current_index = 0
         self._is_playing = False
         self._stop_timer = None
-        self._track_volume = 100  # per-track volume (0–100)
+        self._track_volume = self._load_track_volume()  # per-track volume (0–100)
         self._lock = threading.Lock()
 
         # Event handling
@@ -121,9 +121,10 @@ class AudioPlayer:
         logger.info(f"Previous track: index {self._current_index}")
 
     def set_track_volume(self, volume):
-        """Set per-track volume (0-100)."""
+        """Set per-track volume (0-100) and persist to DB."""
         self._track_volume = max(0, min(100, volume))
         self._apply_track_volume()
+        self._save_track_volume()
 
     def _apply_track_volume(self):
         """Apply volume to VLC player."""
@@ -189,3 +190,34 @@ class AudioPlayer:
             'track_volume': self._track_volume,
             'playlist': [os.path.basename(f) for f in self._current_playlist],
         }
+
+    def _load_track_volume(self):
+        """Load saved track volume from the settings table."""
+        try:
+            from app.database import get_db_connection
+            conn = get_db_connection(self.app)
+            cursor = conn.execute(
+                "SELECT value FROM settings WHERE key = 'track_volume'"
+            )
+            row = cursor.fetchone()
+            conn.close()
+            if row:
+                return max(0, min(100, int(row['value'])))
+        except Exception as e:
+            logger.warning(f"Could not load track volume: {e}")
+        return 100
+
+    def _save_track_volume(self):
+        """Persist current track volume to the settings table."""
+        try:
+            from app.database import get_db_connection
+            conn = get_db_connection(self.app)
+            conn.execute(
+                "INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)",
+                ('track_volume', str(self._track_volume))
+            )
+            conn.commit()
+            conn.close()
+        except Exception as e:
+            logger.warning(f"Could not save track volume: {e}")
+

@@ -112,11 +112,36 @@ def set_volume_live():
 
 @api_bp.route('/track-volume', methods=['POST'])
 def set_track_volume():
-    """Set per-track volume (VLC internal)."""
+    """Set per-track volume (VLC internal) and persist."""
     data = request.get_json(silent=True) or {}
     vol = data.get('volume', 100)
     services.audio_player.set_track_volume(int(vol))
     return jsonify({'success': True, 'track_volume': vol})
+
+
+@api_bp.route('/default-volume', methods=['GET'])
+def get_default_volume():
+    """Get the default playback volume used by schedules."""
+    db = get_db()
+    row = db.execute(
+        "SELECT value FROM settings WHERE key = 'default_volume'"
+    ).fetchone()
+    vol = int(row['value']) if row else 80
+    return jsonify({'volume': vol})
+
+
+@api_bp.route('/default-volume', methods=['POST'])
+def set_default_volume():
+    """Set the default playback volume used by schedules."""
+    data = request.get_json(silent=True) or {}
+    vol = max(0, min(100, int(data.get('volume', 80))))
+    db = get_db()
+    db.execute(
+        "INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)",
+        ('default_volume', str(vol))
+    )
+    db.commit()
+    return jsonify({'success': True, 'volume': vol})
 
 
 # ─── Songs ───────────────────────────────────────────────────────────────────

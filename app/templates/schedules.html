@@ -101,8 +101,14 @@
                 <div class="form-hint">Playback will automatically stop after this many minutes</div>
             </div>
             <div class="form-group">
-                <label>Volume (%)</label>
-                <input type="number" id="schedVolume" class="form-control" min="0" max="100" value="80">
+                <label style="display: flex; align-items: center; gap: 0.5rem;">
+                    <input type="checkbox" id="schedUseDefault" checked onchange="toggleCustomVolume()">
+                    Use default volume
+                </label>
+                <div id="customVolumeWrap" style="display:none; margin-top: 0.5rem;">
+                    <input type="number" id="schedVolume" class="form-control" min="0" max="100" value="80">
+                </div>
+                <div class="form-hint">When checked, uses the current default volume at playback time</div>
             </div>
         </div>
 
@@ -197,7 +203,7 @@
                     <div class="schedule-details">
                         <div class="schedule-detail">⏰ ${timeInfo}</div>
                         <div class="schedule-detail">⏱ ${s.duration_minutes} min</div>
-                        <div class="schedule-detail">🔊 ${s.volume}%</div>
+                        <div class="schedule-detail">🔊 ${s.volume != null ? s.volume + '%' : 'Default'}</div>
                     </div>
                     <div class="flex gap-1 mt-2" style="justify-content: flex-end;">
                         <label class="toggle" title="${s.enabled ? 'Disable' : 'Enable'}">
@@ -214,6 +220,11 @@
         }
     }
 
+    function toggleCustomVolume() {
+        const useDefault = document.getElementById('schedUseDefault').checked;
+        document.getElementById('customVolumeWrap').style.display = useDefault ? 'none' : '';
+    }
+
     function showAddSchedule() {
         editingScheduleId = null;
         document.getElementById('scheduleModalTitle').textContent = 'Create Schedule';
@@ -227,7 +238,9 @@
         document.getElementById('schedEndDate').value = '';
         document.getElementById('schedPlaylist').value = '';
         document.getElementById('schedDuration').value = '35';
+        document.getElementById('schedUseDefault').checked = true;
         document.getElementById('schedVolume').value = '80';
+        toggleCustomVolume();
         document.getElementById('schedSaveBtn').textContent = 'Create Schedule';
         onScheduleTypeChange();
         document.getElementById('scheduleModal').style.display = 'flex';
@@ -251,7 +264,11 @@
             document.getElementById('schedEndDate').value = sched.end_date || '';
             document.getElementById('schedPlaylist').value = sched.playlist_id || '';
             document.getElementById('schedDuration').value = sched.duration_minutes;
-            document.getElementById('schedVolume').value = sched.volume;
+            // Volume: null = use default
+            const hasCustomVol = sched.volume != null;
+            document.getElementById('schedUseDefault').checked = !hasCustomVol;
+            document.getElementById('schedVolume').value = hasCustomVol ? sched.volume : '80';
+            toggleCustomVolume();
             document.getElementById('schedSaveBtn').textContent = 'Save Changes';
             onScheduleTypeChange();
             document.getElementById('scheduleModal').style.display = 'flex';
@@ -279,7 +296,9 @@
             end_date: document.getElementById('schedEndDate').value,
             playlist_id: parseInt(document.getElementById('schedPlaylist').value) || null,
             duration_minutes: parseInt(document.getElementById('schedDuration').value),
-            volume: parseInt(document.getElementById('schedVolume').value),
+            volume: document.getElementById('schedUseDefault').checked
+                ? null
+                : parseInt(document.getElementById('schedVolume').value),
             enabled: 1
         };
 

@@ -87,7 +87,7 @@ CREATE TABLE IF NOT EXISTS schedules (
     end_date TEXT DEFAULT '',
     -- Shared fields
     duration_minutes INTEGER DEFAULT 35,
-    volume INTEGER DEFAULT 80,
+    volume INTEGER DEFAULT NULL,
     enabled INTEGER DEFAULT 1,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
@@ -111,6 +111,14 @@ def init_db(app):
     conn.execute(
         "INSERT OR IGNORE INTO settings (key, value) VALUES (?, ?)",
         ('global_volume', '80')
+    )
+    conn.execute(
+        "INSERT OR IGNORE INTO settings (key, value) VALUES (?, ?)",
+        ('default_volume', '80')
+    )
+    conn.execute(
+        "INSERT OR IGNORE INTO settings (key, value) VALUES (?, ?)",
+        ('track_volume', '100')
     )
     conn.commit()
     conn.close()

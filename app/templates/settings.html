@@ -80,12 +80,12 @@
 
     async function loadSettings() {
         try {
-            const vol = await api('/api/volume');
-            document.getElementById('defaultVolume').value = vol.volume;
-            document.getElementById('defaultVolumeValue').textContent = vol.volume + '%';
+            // Load default volume (for schedules)
+            const defVol = await api('/api/default-volume');
+            document.getElementById('defaultVolume').value = defVol.volume;
+            document.getElementById('defaultVolumeValue').textContent = defVol.volume + '%';
 
             // Detect audio server from status
-            const status = await api('/api/status');
             document.getElementById('audioServer').textContent = 'PipeWire (via pipewire-pulse)';
             document.getElementById('accessUrl').textContent = `http://${location.hostname}:${location.port || 5000}`;
         } catch (e) {
@@ -96,7 +96,7 @@
     async function saveDefaultVolume() {
         const vol = document.getElementById('defaultVolume').value;
         try {
-            await apiPost('/api/volume', { volume: parseInt(vol) });
+            await apiPost('/api/default-volume', { volume: parseInt(vol) });
             showToast('Default volume saved', 'success');
         } catch (e) {
             showToast('Failed to save', 'error');

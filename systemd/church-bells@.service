@@ -8,7 +8,17 @@ Type=simple
 User=%i
 WorkingDirectory=/home/%i/church-music-app
 Environment=PATH=/home/%i/church-music-app/venv/bin:/usr/local/bin:/usr/bin:/bin
-ExecStart=/home/%i/church-music-app/venv/bin/python run.py
+
+# PipeWire / WirePlumber run as user-session services.
+# VLC and wpctl need XDG_RUNTIME_DIR and DBUS_SESSION_BUS_ADDRESS to reach
+# the PipeWire daemon.  We use a shell wrapper to resolve the UID at runtime
+# because %U is the manager UID (root), not the User= UID.
+ExecStart=/bin/bash -c '\
+  export XDG_RUNTIME_DIR="/run/user/$$(id -u)" && \
+  export DBUS_SESSION_BUS_ADDRESS="unix:path=/run/user/$$(id -u)/bus" && \
+  export PULSE_SERVER="unix:/run/user/$$(id -u)/pulse/native" && \
+  exec /home/%i/church-music-app/venv/bin/python run.py'
+
 Restart=always
 RestartSec=5
 

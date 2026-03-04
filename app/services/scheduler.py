@@ -65,11 +65,17 @@ class SchedulerService:
                     minute=schedule.get('minute', 0)
                 )
             elif schedule['schedule_type'] == 'one_time':
-                run_date = schedule.get('run_date', '')
+                run_date = schedule.get('run_date', '').strip()
                 if not run_date:
                     logger.warning(f"Schedule {schedule['id']} missing run_date")
                     return
-                trigger = DateTrigger(run_date=run_date)
+                # HTML datetime-local gives ISO 8601 e.g. "2026-03-04T16:30"
+                try:
+                    parsed_date = datetime.fromisoformat(run_date)
+                except ValueError:
+                    logger.error(f"Schedule {schedule['id']}: cannot parse run_date '{run_date}'")
+                    return
+                trigger = DateTrigger(run_date=parsed_date)
             elif schedule['schedule_type'] == 'automation':
                 trigger = CronTrigger(
                     day_of_week=schedule.get('day_of_week', '*'),
@@ -82,7 +88,7 @@ class SchedulerService:
                 logger.warning(f"Unknown schedule type: {schedule['schedule_type']}")
                 return
 
-            self.scheduler.add_job(
+            job = self.scheduler.add_job(
                 self._execute_schedule,
                 trigger=trigger,
                 id=job_id,
@@ -90,56 +96,86 @@ class SchedulerService:
                 args=[schedule['id']],
                 replace_existing=True
             )
-            logger.info(f"Registered job: {job_id} ({schedule.get('name', 'unnamed')})")
+            logger.info(
+                f"Registered job: {job_id} ({schedule.get('name', 'unnamed')}), "
+                f"next run: {job.next_run_time}"
+            )
         except Exception as e:
-            logger.error(f"Failed to register job {job_id}: {e}")
+            logger.error(f"Failed to register job {job_id}: {e}", exc_info=True)
 
     def _execute_schedule(self, schedule_id):
         """Execute a scheduled playback."""
+        logger.info(f"Schedule {schedule_id} triggered, starting execution...")
         try:
-            conn = get_db_connection(self.app)
-            cursor = conn.execute(
-                "SELECT * FROM schedules WHERE id = ?", (schedule_id,)
-            )
-            schedule = cursor.fetchone()
-            if not schedule:
-                logger.warning(f"Schedule {schedule_id} not found")
-                conn.close()
-                return
-
-            schedule = dict(schedule)
-            logger.info(
-                f"Executing schedule: {schedule['name']} "
-                f"(duration: {schedule['duration_minutes']} min)"
-            )
-
-            # Set volume if specified
-            if schedule.get('volume'):
-                from app.services import volume_controller
-                if volume_controller:
-                    volume_controller.set_volume(schedule['volume'])
-
-            # Play the playlist or song
-            if schedule.get('playlist_id'):
-                self.audio_player.play_playlist_by_id(
-                    schedule['playlist_id'], conn
+            with self.app.app_context():
+                conn = get_db_connection(self.app)
+                cursor = conn.execute(
+                    "SELECT * FROM schedules WHERE id = ?", (schedule_id,)
                 )
-            elif schedule.get('song_id'):
-                self.audio_player.play_song_by_id(
-                    schedule['song_id'], conn
+                schedule = cursor.fetchone()
+                if not schedule:
+                    logger.warning(f"Schedule {schedule_id} not found in DB")
+                    conn.close()
+                    return
+
+                schedule = dict(schedule)
+                logger.info(
+                    f"Executing schedule: {schedule['name']} "
+                    f"(duration: {schedule['duration_minutes']} min, "
+                    f"volume: {schedule.get('volume')}%)"
                 )
-            else:
-                logger.warning(f"Schedule {schedule_id} has no playlist or song")
+
+                # Determine volume: use schedule-specific or fall back to default
+                sched_volume = schedule.get('volume')
+                if sched_volume is not None and sched_volume > 0:
+                    target_volume = sched_volume
+                else:
+                    # Read current default volume from settings
+                    row = conn.execute(
+                        "SELECT value FROM settings WHERE key = 'default_volume'"
+                    ).fetchone()
+                    target_volume = int(row['value']) if row else 80
+                    logger.info(f"Schedule has no custom volume, using default: {target_volume}%")
+
+                # Set track volume (VLC internal), not global system volume
+                self.audio_player.set_track_volume(target_volume)
+                logger.info(f"Track volume set to {target_volume}%")
+
+                # Play the playlist or song
+                play_success = False
+                if schedule.get('playlist_id'):
+                    play_success = self.audio_player.play_playlist_by_id(
+                        schedule['playlist_id'], conn
+                    )
+                elif schedule.get('song_id'):
+                    play_success = self.audio_player.play_song_by_id(
+                        schedule['song_id'], conn
+                    )
+                else:
+                    logger.warning(f"Schedule {schedule_id} has no playlist or song")
+                    conn.close()
+                    return
+
+                if play_success:
+                    logger.info(f"Schedule '{schedule['name']}' playback started successfully")
+                else:
+                    logger.error(f"Schedule '{schedule['name']}' playback FAILED to start")
+
+                # Set auto-stop timer
+                if play_success and schedule.get('duration_minutes', 0) > 0:
+                    self.audio_player.set_stop_timer(schedule['duration_minutes'])
+
+                # Auto-remove one-time schedules after execution
+                if schedule['schedule_type'] == 'one_time':
+                    conn.execute(
+                        "DELETE FROM schedules WHERE id = ?", (schedule_id,)
+                    )
+                    conn.commit()
+                    logger.info(f"One-time schedule '{schedule['name']}' auto-removed after execution")
+
                 conn.close()
-                return
-
-            # Set auto-stop timer
-            if schedule.get('duration_minutes', 0) > 0:
-                self.audio_player.set_stop_timer(schedule['duration_minutes'])
-
-            conn.close()
         except Exception as e:
-            logger.error(f"Schedule execution failed: {e}")
+            logger.error(f"Schedule {schedule_id} execution failed: {e}", exc_info=True)
 
     def add_schedule(self, schedule_data):
         """Add a new schedule to the DB and register the job."""
@@ -163,7 +199,7 @@ class SchedulerService:
                     schedule_data.get('start_date', ''),
                     schedule_data.get('end_date', ''),
                     schedule_data.get('duration_minutes', 35),
-                    schedule_data.get('volume', 80),
+                    schedule_data.get('volume'),  # None = use default at runtime
                     schedule_data.get('enabled', 1),
                 )
             )
